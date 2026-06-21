@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1
 
-# -------------------- COMPOSER + PHP EXTENSIONS --------------------
+# -------------------- COMPOSER BUILD --------------------
 FROM php:8.3-cli AS vendor
 
 WORKDIR /app
 
-# Install PHP extensions needed for Composer (IMPORTANT FIX: gd included here)
+# Install system + PHP extensions (for Composer)
 RUN apt-get update && apt-get install -y \
     git unzip \
     libzip-dev \
@@ -15,36 +15,23 @@ RUN apt-get update && apt-get install -y \
     libicu-dev \
     libonig-dev \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install \
-        gd \
-        pdo_mysql \
-        zip \
-        intl \
-        bcmath
+    && docker-php-ext-install gd pdo_mysql zip intl bcmath
 
-# Install Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-WORKDIR /app
+# IMPORTANT: copy FULL project FIRST
+COPY . .
 
-# Copy composer files first (better caching)
-COPY composer.json composer.lock ./
-
-# Install PHP dependencies
+# Now Composer can safely run artisan scripts
 RUN composer install \
     --no-dev \
     --prefer-dist \
     --no-interaction \
     --optimize-autoloader
 
-# Copy full project
-COPY . .
 
-RUN composer dump-autoload --optimize
-
-
-# -------------------- FRONTEND BUILD (VITE / NODE) --------------------
-FROM node:22-bookworm-slim AS frontend
+# -------------------- FRONTEND BUILD --------------------
+FROM node:20-bookworm-slim AS frontend
 
 WORKDIR /app
 
@@ -55,14 +42,14 @@ COPY . .
 RUN npm run build
 
 
-# -------------------- FINAL RUNTIME (APACHE + PHP) --------------------
+# -------------------- FINAL IMAGE (APACHE) --------------------
 FROM php:8.3-apache
 
 WORKDIR /var/www/html
 
 ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
 
-# Install PHP extensions for runtime
+# Install PHP extensions
 RUN apt-get update && apt-get install -y \
     git unzip \
     libzip-dev \
@@ -82,22 +69,22 @@ RUN apt-get update && apt-get install -y \
     && a2enmod rewrite headers \
     && rm -rf /var/lib/apt/lists/*
 
-# Fix Apache root for Laravel
+# Fix Apache for Laravel
 RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' \
     /etc/apache2/sites-available/*.conf \
     /etc/apache2/apache2.conf
 
-# Copy backend + vendor + build
+# Copy application
 COPY --from=vendor /app /var/www/html
 COPY --from=frontend /app/public/build /var/www/html/public/build
 
-# Permissions (VERY IMPORTANT)
+# Permissions
 RUN chown -R www-data:www-data storage bootstrap/cache
 
-# Render HTTPS fix (important for mixed content)
+# Render HTTPS support
 RUN echo "SetEnvIf X-Forwarded-Proto https HTTPS=on" >> /etc/apache2/apache2.conf
 
-# Laravel safety (avoid crash on build)
+# Safe Laravel optimization (NEVER FAIL BUILD)
 RUN php artisan optimize:clear || true
 RUN php artisan storage:link || true
 

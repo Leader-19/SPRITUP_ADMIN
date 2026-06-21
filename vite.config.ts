@@ -1,4 +1,4 @@
-import { wayfinder } from '@laravel/vite-plugin-wayfinder';
+
 import tailwindcss from '@tailwindcss/vite';
 import vue from '@vitejs/plugin-vue';
 import laravel from 'laravel-vite-plugin';
@@ -15,9 +15,6 @@ export default defineConfig({
 
         tailwindcss(),
 
-        wayfinder({
-            formVariants: true,
-        }),
 
         vue({
             template: {
@@ -34,4 +31,12 @@ export default defineConfig({
             '@': path.resolve(__dirname, './resources/js'),
         },
     },
+    build: {
+        rollupOptions: {
+            onwarn(warning, warn) {
+                if (warning.code === 'MODULE_LEVEL_DIRECTIVE') return;
+                warn(warning);
+            }
+        }
+    }
 });
