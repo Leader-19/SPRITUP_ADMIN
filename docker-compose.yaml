@@ -1,0 +1,121 @@
+x-app-env: &app-env
+  APP_NAME: "${APP_NAME:-Law Sharing Documents}"
+  APP_ENV: "${APP_ENV:-production}"
+  APP_DEBUG: "${APP_DEBUG:-false}"
+  APP_KEY: "${APP_KEY:-}"
+  APP_URL: "${APP_URL:-http://localhost:8000}"
+
+  LOG_CHANNEL: stderr
+  LOG_LEVEL: "${LOG_LEVEL:-info}"
+
+  DB_CONNECTION: mysql
+  DB_HOST: mysql
+  DB_PORT: 3306
+  DB_DATABASE: "${DB_DATABASE:-law_doc}"
+  DB_USERNAME: "${APP_DB_USERNAME:-law_doc}"
+  DB_PASSWORD: "${APP_DB_PASSWORD:-${DB_PASSWORD:-law_doc_password}}"
+
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  REDIS_PASSWORD: ""
+
+  QUEUE_CONNECTION: "${QUEUE_CONNECTION:-redis}"
+  CACHE_STORE: "${CACHE_STORE:-redis}"
+  CACHE_DRIVER: "${CACHE_STORE:-redis}"
+  SESSION_DRIVER: "${SESSION_DRIVER:-database}"
+  SESSION_LIFETIME: 120
+
+  FILESYSTEM_DISK: "${FILESYSTEM_DISK:-local}"
+  MAIL_MAILER: log
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE:-law_doc}
+      MYSQL_USER: ${APP_DB_USERNAME:-law_doc}
+      MYSQL_PASSWORD: ${APP_DB_PASSWORD:-${DB_PASSWORD:-law_doc_password}}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-law_doc_root_password}
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$${MYSQL_USER} -p$${MYSQL_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: "no"
+    environment: *app-env
+    depends_on:
+      mysql:
+        condition: service_healthy
+    command: php artisan migrate --force
+
+  seed:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: "no"
+    environment: *app-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command: php artisan db:seed --force
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment: *app-env
+    ports:
+      - "${APP_PORT:-8000}:80"
+    volumes:
+      - law_storage:/var/www/html/storage
+      - law_bootstrap_cache:/var/www/html/bootstrap/cache
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      seed:
+        condition: service_completed_successfully
+
+  queue:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment: *app-env
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: php artisan queue:work --sleep=3 --tries=3 --max-time=3600
+
+volumes:
+  mysql_data:
+  redis_data:
+  law_storage:
+  law_bootstrap_cache:
