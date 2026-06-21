@@ -6,26 +6,19 @@ import { defineConfig } from 'vite';
 import path from 'path';
 
 export default defineConfig({
-     theme: {
-    extend: {
-      fontFamily: {
-        battambang: ['Battambang', 'sans-serif'],
-
-        // OPTIONAL: set as default
-        sans: ['Battambang', 'sans-serif'],
-      },
-    },
-  },
     plugins: [
         laravel({
             input: ['resources/js/app.ts'],
             ssr: 'resources/js/ssr.ts',
             refresh: true,
         }),
+
         tailwindcss(),
+
         wayfinder({
             formVariants: true,
         }),
+
         vue({
             template: {
                 transformAssetUrls: {
